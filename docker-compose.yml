@@ -33,3 +33,20 @@ services:
     #volumes:
       #- ./postgres-data:/var/lib/postgresql/data
       #- ./postgres-data:/docker-entrypoint-initdb.d/
+  client:
+    container_name: react-frontend
+    stdin_open: true
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    volumes:
+      - './client:/usr/src/app'
+      - '/usr/src/app/node_modules'
+    ports:
+      - '3000:3000'
+    depends_on:
+      - "backend"
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true
+      - HOST_URL=http://192.168.99.100:5000
