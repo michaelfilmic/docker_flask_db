@@ -1,7 +1,10 @@
 version: "3.9"
 services:
   backend:
-    build: ./app
+    container_name: flask
+    build:
+      context: ./backend/
+      dockerfile: Dockerfile
     stdin_open: true
     depends_on:
       - db
