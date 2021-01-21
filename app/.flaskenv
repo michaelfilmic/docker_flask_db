@@ -1,4 +1,4 @@
-FLASK_APP=app.py
+FLASK_APP=main.py
 FLASK_EVN=development
 FLASK_SECRET_KEY='anything_hash_sf213'
 FLASK_DEBUG=1
