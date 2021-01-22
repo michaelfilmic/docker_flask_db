@@ -4,40 +4,28 @@ import re
 import base64
 from io import BytesIO,StringIO
 from PIL import Image, ImageDraw, ImageFont
-from main import app,face_client,db
+from main import *
 from forms import *
 from database import *
-from azure.cognitiveservices.vision.face.models import APIErrorException
+#from azure.cognitiveservices.vision.face.models import APIErrorException
 import sys
 sys.path.append('.')
-from azure.utils import *
-from azure.register import *
-
-import random
-
+#from azure.utils import *
+from register import *
+from Aws_functions import *
+from main import app,db, Collection_id, client
 
 @app.route("/")
 
 def homepage():
     return "Homepage for sanity"
 
-@app.route("/add")
-def add_person():
-    rand = random.randint(0,1000000)
-    customer1=Customer(id=rand,first_name='Temp',last_name='Yu',phone_number='6479365120',card_number='1234123412341234',cvv='123',expire_date='0922')
-    db.session.add_all([customer1])
-    db.session.commit()
-    return "ran :" + str(rand)
-
 @app.route("/list")
 def list_person():
-    show_compare = []
-    cust2 = Customer.query.filter().all()
-    for item in cust2:
-        show_compare.append(item.id)
-    cust1 = Customer.query.count()
-    print(cust1)
-    return 'list' + str(cust1) + str(show_compare)
+    faces_count=list_faces_in_collection(Collection_id)
+    print("faces count: " + str(faces_count))
+
+    return "list printed in terminal"
 
 @app.route("/testing", methods=['POST'])
 def testing():
@@ -48,20 +36,20 @@ def testing():
 @app.route("/register/info", methods=['POST'])
 def post_info():
     data = json.loads(request.data, strict=False)
-    print (data)
+    #print (data)
     print (type(data))
-
     if (check_form_not_none(data)): 
         person_name_at_bank_acc = data['first_name'] + "_" + data['last_name'] + "@" + data['card_number']
         print (person_name_at_bank_acc)
         #MM_todo - check person whether exist in data base instead of AI model
-        if (check_person_exist(face_client,person_name_at_bank_acc)):
+        if (check_person_existence(data)):
             print ("user exist")
             return jsonify({'message': 'user already exist','name@bank':person_name_at_bank_acc}),200
         else:
-            person_id = create_person(face_client,person_name_at_bank_acc)
-            if person_id is None:
-                return jsonify({'message': 'AI model can not create a person'}),200
+            #Yunan: use name_phone as id
+            # so 'id' and 'aws_id' are different items
+            
+            person_id = data['first_name'] + "_" + data['last_name'] + "_" + data['phone_number']
             print (person_id)
             #because 2nd time called this, we dont have the id, we need to store it frist 
 
@@ -78,6 +66,7 @@ def post_info():
                     )
             db.session.add_all([customer_info])
             db.session.commit()
+            print ("user added !!!!!!!!!!!!!!!!\n")
 
             return jsonify({'message': 'ok, the text info is added into db', 'person_id': person_id}),200
 
@@ -110,43 +99,23 @@ def post_photo(person_id = None):
     else:
         print ("got person id" + person_id)
         [image_type,image_content] = re.split(",",data['photo'])
-        print (image_type)
         if (image_type != "data:image/jpeg;base64"):
             return jsonify({'message': 'the image is not a jpeg type'}),200
-        #print (type(image_content))
-        #print (type(base64.b64decode(image_content)))
-        nparr = np.fromstring(base64.b64decode(image_content), np.uint8)
-        #print (type(nparr))
-        #img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        #print (type(img))
-        #cv2.imshow('img',img)
-        #cv2.imwrite(constant.REG_PHOTO_FOLDER+'{person_id_name}.jpg'.format(person_id_name = person_id), img) 
-        file_p = open(constant.REG_PHOTO_FOLDER+'{person_id_name}.jpg'.format(person_id_name = person_id), 'r+b')
-        #when we add face, we can also add the name@bank as the argument
-        #PersistedFace_id = face_client.person_group_person.add_face_from_stream(constant.PERSON_GROUP_ID, person_id, image_content, name="ma@123")
+
+
         try:
-            response_info = face_client.person_group_person.add_face_from_stream(constant.PERSON_GROUP_ID, person_id, file_p)#, name="ma@123")
-            print (response_info)
+            aws_respose = add_faces_to_collection(image_content,person_id,Collection_id)
+            user= Customer.query.get(person_id)
+            print (user)
+            user.aws_id = aws_respose['FaceRecords'][0]['Face']['FaceId']
+            db.session.commit()
+            print (user.aws_id)
         except APIErrorException:
             print ("no face is detected")
             return jsonify({'message': "no face is detected"}),200
-        train_person_group(face_client)
-        #try:
-        #    train_person_group(face_client)
-        #except:
-        #    print ("training not succeed")
-        #    return jsonify({'message': "training not succeed"}),200
-        
-        if (constant.KEEP_CACHE_PHOTO == 0 ):
-            try:
-                os.remove(constant.REG_PHOTO_FOLDER+'{person_id_name}.jpg'.format(person_id_name = person_id))
-                print ("photo is removed")
-            except PermissionError:
-                print ("delete photo permission denied")
             
         return jsonify({'message': 'photo is added'}),200
 
-    return jsonify({'message': 'reponse'}),200
 
 
 def check_form_not_none(data):
@@ -175,56 +144,19 @@ def payment_photo():
         print (image_type)
         if (image_type != "data:image/jpeg;base64"):
            return jsonify({'message': 'the image is not a jpeg type'}),200
-        nparr = np.fromstring(base64.b64decode(image_content), np.uint8)
-        #img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        #cv2.imwrite(constant.PAY_PHOTO_FOLDER+'{person_id_name}.jpg'.format(person_id_name = "temp"), img) 
-        file_p = open(constant.PAY_PHOTO_FOLDER+'{person_id_name}.jpg'.format(person_id_name = "temp"), 'r+b')
-        # Detect faces
-        face_ids = []
         try:
-            faces =face_client.face.detect_with_stream(file_p,recognition_model=constant.RECOGNITION_MODEL)
+            faceMatches=search_face_in_collection(image_content,Collection_id)
+            if not faceMatches:
+                print ('no matched faces')
+                return jsonify({'message': "no matched faces"}),200
+            else:
+                print ('Matching faces')
+                for match in faceMatches:
+                        print ('FaceId:' + match['Face']['FaceId'])
+                        print ('Similarity: ' + "{:.2f}".format(match['Similarity']) + "%")
+                return jsonify({'message': 'succeed', 'person_id' : faceMatches[0]['Face']['FaceId'], 'require_phone_number' : 0, 'Similarity' : faceMatches[0]['Similarity']}),200
         except APIErrorException:
            print ("detect failure")
            return jsonify({'message': "detect failure"}),200
 
-        for face in faces:
-            face_ids.append(face.face_id)
-            print('face ID in faces {}.\n'.format(face.face_id)) 
-        if (len(face_ids) == 0):
-            print ("No face detected in this verify image")
-            return jsonify({'message': "No face detected in this verify image"}),200
-        elif (len(faces) > 1):
-            print ("More than 1 faces detected in this verify image. Please retake the photo")
-            return jsonify({'message': "More than 1 faces detected in this verify image. Please retake the photo"}),200
-        else:
-            try:
-                results = face_client.face.identify(face_ids,constant.PERSON_GROUP_ID)
-            except APIErrorException:
-                print ("identify failure, possibly person group not train")
-                return jsonify({'message': "identify failure, possibly person group not train"}),200
-
-            if not results:
-                print('No person in AI database matched with this verification')
-                return jsonify({'message': "No person in AI database matched with this verification"}),200
-            else:
-                #should be only 1 face
-                first_face = results[0]
-                first_candidates = first_face.candidates[0]
-                print ("test")
-                print (first_face)
-                print (type(first_face))
-                print (first_candidates)
-                print (type(first_candidates))
-                if (len(first_face.candidates) == 0):
-                    print('No candidates person in this database matched with this verification')
-                    return jsonify({'message': "No candidates person in this database matched with this verification"}),200
-                else :
-                    first_person_id = first_candidates.person_id
-                    first_person_confidence = first_candidates.confidence
-                    first_person_name = face_client.person_group_person.get(constant.PERSON_GROUP_ID,first_candidates.person_id).name
-                    print('Person name {} with person_id {} matched with this cerification with a confidence of {}.'.format(first_person_name, first_person_id, first_person_confidence)) 
-                        
-                    #MM_todo query database, return user all info
-                    #MM_todo set confidence threholds, check payment_cnt
-                    return jsonify({'message': 'succeed', 'person_id' : first_person_id, 'require_phone_number' : 0, 'confidence' : first_person_confidence}),200
-    return jsonify({'message': 'reponse'}),200
+        

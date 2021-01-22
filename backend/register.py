@@ -1,23 +1,21 @@
+from database import Customer
 import glob
 import time
-import numpy as np
-import cv2
+#import cv2
 import constant
 
+#modified for AWS
+def check_person_existence(data):
+    existing = Customer.query.filter(Customer.first_name ==data['first_name'], 
+    Customer.last_name==data['last_name'],
+    Customer.card_number==data['card_number']).first()
 
-def check_person_exist(client,person_name_at_bank_acc,PERSON_GROUP_ID=constant.PERSON_GROUP_ID):
-    exist_person_list = client.person_group_person.list(PERSON_GROUP_ID)
-    if (exist_person_list is not None):
-        person_name_list = [x.name for x in exist_person_list]
-        #print ("exist_person_list: " + str(person_name_list))
-        if person_name_at_bank_acc not in person_name_list:
-            return False
-        else:
-            #print ("Person " + str(person_name_at_bank_acc)+" already exists not need to create")
-            return True
+    if existing != None:
+        print(existing.id)
+        return True
     else:
         return False
-
+#not used for AWS
 def create_person(client,person_name_at_bank_acc,PERSON_GROUP_ID=constant.PERSON_GROUP_ID):
     new_person = client.person_group_person.create(PERSON_GROUP_ID, name=person_name_at_bank_acc)
     return new_person.person_id
